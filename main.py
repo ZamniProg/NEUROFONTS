@@ -5,6 +5,7 @@ import datasets
 import numpy as np
 import tensorflow as tf
 from datasets import DatasetDict
+from keras.src.legacy.backend import update
 from tqdm import tqdm
 from PIL import Image
 from matplotlib import pyplot as plt
@@ -16,9 +17,22 @@ from tensorflow.keras import layers, models
 
 class COLOR:
     """
-    Class to handle colored text output.
+    A utility class for handling colored text output in the terminal.
 
-    **get**: method that return the color
+    Provides ANSI escape sequences for different colors to format text with colors.
+
+    **Available Colors:**
+    \n- `red`: Red color.
+    \n- `green`: Green color.
+    \n- `yellow`: Yellow color.
+    \n- `blue`: Blue color.
+    \n- `magenta`: Magenta color.
+    \n- `cyan`: Cyan color.
+    \n- `white`: White color.
+    \n- `empty`: Reset to default terminal color (no color).
+
+    \n**Methods:**
+    - **get**: Retrieve the ANSI escape sequence for the specified color.
     """
     def __init__(self):
         self.__colors = {
@@ -33,17 +47,22 @@ class COLOR:
         }
 
     def get(self, color: str = 'empty'):
-        """Get the escape sequence for a specific color."""
+        """
+        Retrieve the ANSI escape sequence for a specified color.
+
+        :param color: The name of the color. Defaults to 'empty' (no color).
+        :return: The ANSI escape code for the color or the reset code if the color is not found.
+        """
         return self.__colors.get(color, self.__colors['empty'])
 
 
 class Dataset:
     """
-    Class for handling dataset operations.
+    Class for managing dataset operations including downloading and loading datasets.
 
-    **Methods:**
-    \n- **datasetDownloader**: download dataset to user directory.
-    \n- **datasetLoader**: load a dataset from path.
+    \n**Methods:**
+    \n- **datasetDownloader(path)**: Downloads a dataset to the specified directory.
+    \n- **datasetLoader(path, show_images)**: Loads a dataset from the specified directory and optionally displays images.
     """
     def __init__(self):
         pass
@@ -51,9 +70,9 @@ class Dataset:
     @staticmethod
     def datasetDownloader(path: str = './school_notebooks_RU') -> None:
         """
-        Downloads the dataset to a specified directory.
+        Download a dataset from Hugging Face and save it to the specified directory.
 
-        :param path: Directory where the dataset will be saved.
+        :param path: Directory where the dataset will be downloaded. Defaults to './school_notebooks_RU'.
         :return: None
         """
         try:
@@ -76,11 +95,11 @@ class Dataset:
     def datasetLoader(path: str = './school_notebooks_RU',
                       show_images: bool = True) -> Union[datasets.Dataset, datasets.DatasetDict]:
         """
-        Load dataset from user directory
+        Load a dataset from the specified directory. Optionally displays sample images.
 
-        :param show_images: bool var that used to show one image for every sets
-        :param path: path to folder where dataset to exist
-        :return: full dataset's with functional that writen in library "datasets"
+        :param path: Directory where the dataset is stored. Defaults to './school_notebooks_RU'.
+        :param show_images: If True, displays sample images from the train, test, and validation sets.
+        :return: Loaded dataset object (Dataset or DatasetDict).
         """
         try:
             dataset = datasets.load_from_disk(path)
@@ -114,24 +133,28 @@ class Dataset:
 
 class Annotation(Dataset):
     """
-    Class for work with the annotations: folders clear, copying, rename and annotations read.
+    A class for managing annotation files and directories. This includes tasks such as clearing folders, copying
+    annotations, renaming files, and reading or modifying annotation JSON files.
 
     **Methods:**
-    \n- **clearFolder**: clearing folder.
-    \n- **replaceAnnotations**: replace annotations files in new folder.
-    \n- **renameAnnotations**: rename annotations files in the given order.
-    \n- **getAnnotations_path**: return a path to annotations folder.
-    \n- **readAnnotations**: reading annotation JSON-file.
+    \n- **clearFolder**: Clears the contents of a specified folder.
+    \n- **replaceAnnotations**: Copies annotation files from one folder to another.
+    \n- **renameAnnotations**: Renames annotation files in a specified directory to predefined names.
+    \n- **getAnnotationsPath**: Returns the path to the folder containing annotations.
+    \n- **loadAnnotation**: Loads COCO dataset annotations from a file.
+    \n- **update_annotations**: Adds unique IDs to annotations in a JSON file.
+    \n- **getAnnotation**: Reads and returns the contents of an annotation JSON file.
     """
+
     def __init__(self):
         super().__init__()
 
     @staticmethod
     def clearFolder(path_to_clear: str) -> None:
         """
-        Clears the directory
+        Clears the contents of the specified directory by deleting all files and subdirectories.
 
-        :param path_to_clear: path to directory for clear
+        :param path_to_clear: Path to the directory that needs to be cleared.
         :return: None
         """
         try:
@@ -156,10 +179,10 @@ class Annotation(Dataset):
     @staticmethod
     def replaceAnnotations(path_to_datafolder: str, path_to_save: str = '.\\school_notebooks_RU\\annotations') -> None:
         """
-        Replaces annotations int first folder to second folder
+        Copies annotation files from a source folder to a target folder. Only files within a specific size range are copied.
 
-        :param path_to_datafolder: path to directory for clear
-        :param path_to_save: path to directory for save annotations
+        :param path_to_datafolder: Path to the source directory containing annotation files.
+        :param path_to_save: Path to the target directory where files will be saved.
         :return: None
         """
         try:
@@ -183,9 +206,9 @@ class Annotation(Dataset):
     @staticmethod
     def renameAnnotations(path_to_annotations: str) -> None:
         """
-        Function for rename the annotations to more real names
+        Renames annotation files in the given folder to predefined names based on their sizes.
 
-        :param path_to_annotations: path to directory with annotations
+        :param path_to_annotations: Path to the directory containing annotation files.
         :return: None
         """
         try:
@@ -213,9 +236,9 @@ class Annotation(Dataset):
     @staticmethod
     def getAnnotationsPath() -> Union[str, None]:
         """
-        Function for obtaining full path to annotations
+        Returns the path to the directory containing annotations. Checks both the cache directory and a local folder.
 
-        :return: path to annotations
+        :return: Path to the annotations folder if found, otherwise None.
         """
         try:
             base_cache_dir = os.getenv('USERPROFILE', '')
@@ -242,10 +265,11 @@ class Annotation(Dataset):
     @staticmethod
     def loadAnnotation(annotation_folder_path: str, annotation: str = 'train') -> Union[COCO, None]:
         """
-            Load COCO dataset annotations.
+        Loads COCO annotations from a specified file.
 
-            :param annotation: name of annotation (train/test/val)
-            :param annotation_folder_path: path to COCO annotations file
+        :param annotation_folder_path: Path to the folder containing annotation files.
+        :param annotation: Name of the annotation file to load (e.g., 'train', 'test', 'val').
+        :return: COCO object if successful, None otherwise.
         """
         try:
             annot = COCO(os.path.join(annotation_folder_path, f'annotations_{annotation}.json'))
@@ -254,59 +278,123 @@ class Annotation(Dataset):
             print(f"Error loading COCO annotations: {e}")
             return None
 
-    def getAnnotation(self):
-        pass
+    @staticmethod
+    def update_annotations(annotation_path):
+        """
+        Updates the annotations file by adding a unique ID to each annotation.
+
+        :param annotation_path: Path to the annotation JSON file to update.
+        :return: None
+        """
+        try:
+            # Загружаем JSON
+            with open(annotation_path, 'r') as f:
+                data = json.load(f)
+
+            # Добавляем уникальный ID для каждой аннотации
+            for i, annotation in enumerate(data['annotations']):
+                annotation['id'] = i + 1
+
+            # Сохраняем обновленный JSON
+            with open(annotation_path, 'w') as f:
+                json.dump(data, f, indent=4)
+
+            print(f"Annotation: {annotation_path} updated successfully!")
+        except Exception as e:
+            print(f"Error updating annotations: {e}")
+
+    @staticmethod
+    def getAnnotation(path_to_annotation: str = 'school_notebooks_RU/annotations/annotations_test.json'):
+        """
+        Reads and returns the contents of an annotation JSON file.
+
+        :param path_to_annotation: Path to the annotation file to read.
+        :return: Parsed JSON data as a dictionary.
+        """
+        with open(path_to_annotation, 'r') as f:
+            file = json.load(f)
+            return file
+
 
 class Preprocess(Annotation):
     """
     Class for data preprocessing.
 
+    This class provides methods for preprocessing images and bounding boxes, which are common tasks
+    in computer vision datasets. It supports reading and resizing images, calculating bounding boxes
+    from segmentation data, and preprocessing multiple images and bounding boxes at once.
+
     **Methods:**
-    \n- **bbox**: preprocess for one bbox
-    \n- **allBboxes**: preprocess for every bbox in tuple or list with annotations
-    \n- **image**: preprocess for one image
-    \n- **allImages**: preprocess for every image in tuple or list with annotations
+    \n- **bbox**: Preprocess a single bounding box from segmentation coordinates.
+    \n- **allBboxes**: Preprocess all bounding boxes in a dataset (e.g., COCO annotations).
+    \n- **image**: Preprocess a single image, including resizing and normalization.
+    \n- **allImages**: Preprocess multiple images, including resizing and normalization.
     """
+
     def __init__(self):
+        """
+        Initializes the Preprocess class.
+
+        Inherits from Annotation and prepares the methods for handling preprocessing of images and bounding boxes.
+        """
         super().__init__()
 
     @staticmethod
-    def getImagesGenerator(annotation: COCO, image_dir: str,
-                           resize_to: Tuple[int, int] = (256, 256)) -> Iterable[Image.Image]:
+    def getImagesGenerator(dataset: Dataset, resize_to: Tuple[int, int] = (256, 256)) -> Iterable[Image.Image]:
         """
-        Generator for reading and resizing images from the COCO dataset.
+        Generator for reading and resizing images from a Hugging Face Dataset.
 
-        :param annotation: COCO object
-        :param image_dir: directory with images
-        :param resize_to: target size for resizing images
-        :yield: resized PIL.Image object
-        """
-        image_ids = annotation.getImgIds()
-        for img_id in tqdm(image_ids, ascii=True, desc="Images reading"):
-            img_info = annotation.loadImgs(img_id)[0]
-            img_path = f"{image_dir}/{img_info['file_name']}"
-            try:
-                img = Image.open(img_path).convert('RGB')
-                yield img.resize(resize_to)
-            except Exception as e:
-                print(f"Warning: Failed to load image {img_path}: {e}")
+        This method iterates over the dataset and resizes each image to the specified size.
 
-    @staticmethod
-    def bbox(bbox: List[float],
-             original_size: Tuple[int, int], target_size: Tuple[int, int]) -> Union[List[float], None]:
-        """
-        Bbox preprocessing
-
-        :param bbox: list with coordinates (x_min, y_min, width, height)
-        :param original_size: start size of image
-        :param target_size: target size for image
-        :return: new computed bbox
+        :param dataset: Dataset object containing images.
+        :param resize_to: Target size for resizing images.
+        :yield: Resized PIL.Image object.
         """
         try:
-            if len(bbox) != 4:
-                raise ValueError("Bounding box should have exactly 4 elements.")
+            for item in dataset:
+                img = item.get('image')
+                if isinstance(img, Image.Image):
+                    yield img.resize(resize_to)
+                else:
+                    print(f"Warning: Skipping invalid image object: {item}")
+        except Exception as e:
+            print(f"Error while reading images: {e}")
 
-            x_min, y_min, width, height = bbox
+    @staticmethod
+    def bbox(segmentation: List[List[float]],
+                               original_size: Tuple[int, int],
+                               target_size: Tuple[int, int]) -> Union[List[float], None]:
+        """
+        Compute a bounding box from segmentation coordinates.
+
+        This method calculates the bounding box coordinates from a list of segmentation points,
+        and scales it to match the target image size.
+
+        :param segmentation: List of points [[x1, y1, x2, y2, ...], ...] representing the segmentation.
+        :param original_size: Original size of the image (width, height).
+        :param target_size: Target size of the image (width, height).
+        :return: List with bounding box [x_min, y_min, width, height].
+        """
+        try:
+            # Flatten the list of coordinates
+            flat_points = [coord for segment in segmentation for coord in segment]
+
+            if len(flat_points) % 2 != 0:
+                raise ValueError("Segmentation coordinates should be in pairs of (x, y).")
+
+            x_coords = flat_points[::2]  # Extract x coordinates
+            y_coords = flat_points[1::2]  # Extract y coordinates
+
+            x_min = min(x_coords)
+            y_min = min(y_coords)
+            x_max = max(x_coords)
+            y_max = max(y_coords)
+
+            # Calculate original dimensions
+            width = x_max - x_min
+            height = y_max - y_min
+
+            # Original and target sizes
             W_orig, H_orig = original_size
             W_new, H_new = target_size
 
@@ -324,17 +412,20 @@ class Preprocess(Annotation):
 
     def allBboxes(self, annotation: COCO, target_size: Tuple[int, int]) -> Union[np.ndarray, None]:
         """
-        Preprocessing for every bbox in COCO annotations.
+        Preprocess every bounding box in COCO annotations.
 
-        :param annotation: COCO object
-        :param target_size: target size for images
-        :return: np.NDArray with reworked bboxes
+        This method processes all bounding boxes for a given annotation object (e.g., COCO annotations),
+        resizes them, and returns them in a structured format.
+
+        :param annotation: COCO object containing annotation data.
+        :param target_size: Target size for images.
+        :return: A numpy array with reworked bounding boxes.
         """
         try:
             all_bboxes = []
             original_sizes = []
 
-            for img_id in tqdm(annotation.getImgIds(), ascii=True, desc="Bboxes preprocessing"):
+            for img_id in tqdm(annotation.getImgIds(), desc="Bboxes preprocessing"):
                 img_info = annotation.loadImgs(img_id)[0]
                 ann_ids = annotation.getAnnIds(imgIds=img_id)
                 anns = annotation.loadAnns(ann_ids)
@@ -342,16 +433,22 @@ class Preprocess(Annotation):
                 original_size = (img_info['width'], img_info['height'])
 
                 for ann in anns:
-                    new_bbox = self.bbox(ann['bbox'], original_size, target_size)
+                    new_bbox = self.bbox(ann['segmentation'], original_size, target_size)
+                    translation = ann.get('attributes', {}).get('translation', None)
+                    image_id = ann['image_id']
+
                     if new_bbox is not None:
-                        all_bboxes.append(new_bbox)
-                        original_sizes.append(original_size)
+                        # Используем кортеж с координатами и переводом
+                        all_bboxes.append((new_bbox[0], new_bbox[1],
+                                           translation, image_id))  # new_bbox[0] - координаты, new_bbox[1] - высота и ширина
 
             if not all_bboxes:
                 print("Error: No valid bboxes were processed!")
                 return None
 
-            return np.array(all_bboxes, dtype=np.float32)
+            # Используем структурированный массив для данных
+            dtype = [('bbox_x', np.float32), ('bbox_y', np.float32), ('translation', 'U100'), ('image_id', int)]  # Пример для dtype
+            return np.array(all_bboxes, dtype=dtype)
 
         except Exception as e:
             print(f"Error during bboxes preprocessing: {e}")
@@ -360,11 +457,13 @@ class Preprocess(Annotation):
     @staticmethod
     def image(image_obj: Image.Image, target_size: Tuple[int, int]) -> Union[Tuple[Tuple[int, int], np.ndarray], None]:
         """
-        Image preprocessing
+        Image preprocessing.
 
-        :param image_obj: PIL.Image object
-        :param target_size: new size for image
-        :return: tuple with original size of image and np.ndarray with normalized image
+        This method resizes a given image to the target size, converts it to grayscale, and normalizes it.
+
+        :param image_obj: PIL.Image object to be preprocessed.
+        :param target_size: Target size for the image.
+        :return: A tuple with the original size and the preprocessed image as a numpy array.
         """
         try:
             original_size = image_obj.size
@@ -380,17 +479,19 @@ class Preprocess(Annotation):
                   target_size: Union[Tuple[int, int], List[int]]) -> Union[
         Tuple[List[Tuple[int, int]], np.ndarray], None]:
         """
-        Preprocessing for every image from a generator.
+        Preprocess every image from a generator.
 
-        :param image_generator: generator or iterable of PIL.Image objects
-        :param target_size: new size for images (width, height)
-        :return: tuple with list of original sizes and np.ndarray with processed images
+        This method processes multiple images by resizing and normalizing them, and returns the results.
+
+        :param image_generator: Iterable of PIL.Image objects.
+        :param target_size: New size for the images (width, height).
+        :return: A tuple with a list of original sizes and a numpy array with processed images.
         """
         try:
             processed_images = []
             sizes = []
 
-            for img in tqdm(image_generator, ascii=True, desc="Images preprocessing"):
+            for img in tqdm(image_generator, desc="Images preprocessing", unit="image"):
                 if not isinstance(img, Image.Image):
                     print("Warning: Skipping invalid image object.")
                     continue
@@ -411,182 +512,55 @@ class Preprocess(Annotation):
             print(f"Error during images preprocessing: {e}")
             return None
 
-    def fullPreprocess(self, annotation: COCO, image_dir: str, target_size: Tuple[int, int]) -> Union[
+    def fullPreprocess(self, dataset: DatasetDict, target_size: Tuple[int, int],
+                       annotations_folder: str = 'school_notebooks_RU/annotations',
+                       split: str = 'train') -> Union[
         Tuple[np.ndarray, np.ndarray], None]:
         """
-        Preprocessing for every image and bbox in COCO dataset.
+        Full preprocessing for every image and bounding box in the dataset.
 
-        :param annotation: COCO object
-        :param image_dir: directory with images
-        :param target_size: target size for images
-        :return: tuple with reworked bboxes and images
+        This method preprocesses both the images and bounding boxes from a given dataset split.
+
+        :param dataset: DatasetDict object containing datasets for train/validation/test splits.
+        :param target_size: Target size for images.
+        :param split: The split of the dataset to preprocess (e.g., 'train', 'test', 'validation').
+        :return: A tuple with processed bounding boxes and images.
         """
         try:
-            generator = self.getImagesGenerator(annotation, image_dir, resize_to=target_size)
+            if split not in dataset:
+                raise ValueError(f"Split '{split}' not found in DatasetDict. Available splits: {list(dataset.keys())}")
+
+            # Генератор изображений из выбранного сплита
+            generator = self.getImagesGenerator(dataset[split], resize_to=target_size)
+
+            # Предобработка изображений
             sizes, reworked_images = self.allImages(generator, target_size)
-            reworked_bboxes = self.allBboxes(annotation, target_size)
+
+            annot = self.loadAnnotation(annotations_folder, split)
+
+            original_sizes = [item['image'].size for item in dataset[split]]
+            reworked_bboxes = self.allBboxes(annot, target_size)
 
             return reworked_bboxes, reworked_images
         except Exception as e:
             print(f"Error: {e}")
             return None
 
-    # @staticmethod
-    # def getImagesGenerator(dataset: Union[Dataset, DatasetDict],
-    #                        type_of_images: str = 'train',
-    #                        resize_to: Tuple[int, int] = (256, 256)) -> Iterable[Image.Image]:
-    #     """
-    #     Generator for reading and resizing images from the dataset.
-    #
-    #     :param dataset: dataset with images
-    #     :param type_of_images: type of dataset split (e.g., train/val/test)
-    #     :param resize_to: target size for resizing images
-    #     :yield: resized PIL.Image object
-    #     """
-    #     try:
-    #         for item in tqdm(dataset[type_of_images], ascii=True, desc="Images reading"):
-    #             img = item.get('image')
-    #             if img and isinstance(img, Image.Image):
-    #                 yield img.resize(resize_to)
-    #             else:
-    #                 print(f"Warning: Skipping invalid image object: {item}")
-    #     except KeyError as e:
-    #         print(f"Error: Dataset type '{type_of_images}' not found: {e}")
-    #     except Exception as e:
-    #         print(f"Unexpected error while reading images: {e}")
-    #
-    # @staticmethod
-    # def bbox(bbox: Union[List[float], Tuple[float, ...]],
-    #          original_size: Tuple[int, int], target_size: Tuple[int, int]) -> Union[List[float], None]:
-    #     """
-    #     Bbox preprocessing
-    #
-    #     :param bbox: list or tuple with coordinates
-    #     :param original_size: start size of image
-    #     :param target_size: target size for image
-    #     :return: new computed bbox
-    #     """
-    #     try:
-    #         if len(bbox) != 4:
-    #             raise ValueError(f"{COLOR().get('red')}[!]{COLOR().get()} "
-    #                              f"Bounding box should have exactly 4 elements.")
-    #
-    #         x_min, y_min, x_max, y_max = bbox
-    #         W_orig, H_orig = original_size
-    #         W_new, H_new = target_size
-    #
-    #         # Проверка на деление на ноль
-    #         if W_orig == 0 or H_orig == 0 or W_new == 0 or H_new == 0:
-    #             raise ValueError(f"{COLOR().get('red')}[!]{COLOR().get()} "
-    #                              f"Original or target size cannot have zero dimensions.")
-    #
-    #         # Масштабировать координаты
-    #         x_min_new = float(x_min * (W_new / W_orig))
-    #         y_min_new = float(y_min * (H_new / H_orig))
-    #         x_max_new = float(x_max * (W_new / W_orig))
-    #         y_max_new = float(y_max * (H_new / H_orig))
-    #
-    #         return [x_min_new, y_min_new, x_max_new, y_max_new]
-    #
-    #     except Exception as e:
-    #         print(f"{COLOR().get('red')}[!] Error: {e}{COLOR().get()}")
-    #         return None
-    #
-    # def allBboxes(self, bboxes: Union[List[List[float]], List[Tuple[float, ...]]],
-    #               original_sizes: List[Tuple[int, int]], target_size: Tuple[int, int]) -> Union[np.ndarray, None]:
-    #     """
-    #     Preprocessing for every bbox in array.
-    #
-    #     :param bboxes: list with bboxes
-    #     :param original_sizes: original image sizes
-    #     :param target_size: target size for images
-    #     :return: np.NDArray with reworked bboxes
-    #     """
-    #     try:
-    #         if len(bboxes) != len(original_sizes):
-    #             raise ValueError("Mismatch between number of bboxes and original sizes!")
-    #
-    #         all_bboxes = []
-    #         for i, bbox in tqdm(enumerate(bboxes), ascii=True, desc="Bboxes preprocessing"):
-    #             if len(bbox) != 4:
-    #                 print(f"Warning: Skipping invalid bbox at index {i}: {bbox}")
-    #                 continue
-    #
-    #             new_bbox = self.bbox(bbox, original_sizes[i], target_size)
-    #             if new_bbox is not None:
-    #                 all_bboxes.append(new_bbox)
-    #             else:
-    #                 print(f"Error: Failed to process bbox {i + 1}.")
-    #
-    #         if not all_bboxes:
-    #             print("Error: No valid bboxes were processed!")
-    #             return None
-    #
-    #         return np.array(all_bboxes, dtype=np.float32)
-    #
-    #     except Exception as e:
-    #         print(f"Error during bboxes preprocessing: {e}")
-    #         return None
-    #
-    # @staticmethod
-    # def image(image_obj: Image.Image, target_size: Union[Tuple[int, int], List[int]]) -> Union[
-    #     Tuple[Tuple[int, int], np.ndarray], None]:
-    #     """
-    #     Image preprocessing
-    #
-    #     :param image_obj: PIL.Image object
-    #     :param target_size: new size for image
-    #     :return: tuple with original size of image and np.ndarray with normalized image
-    #     """
-    #     try:
-    #         if len(target_size) != 2:
-    #             raise ValueError(f"{COLOR().get('red')}[!] Error: len of target size is not equals 2!{COLOR().get()}")
-    #
-    #         # Ensure the image is in grayscale mode
-    #         image = image_obj.convert('L')
-    #
-    #         original_size = image.size
-    #         image = image.resize(target_size)
-    #         image_array = np.array(image, dtype=np.float32) / 255.0
-    #
-    #         return original_size, np.expand_dims(image_array, axis=-1)
-    #     except Exception as e:
-    #         print(f"{COLOR().get('red')}[!] Error: {e}{COLOR().get()}")
-    #         return None
-    #
-    #
-    # def fullPreprocess(self, dataset: Union[Dataset, DatasetDict],
-    #                    bboxes: Union[List[List[float]], List[Tuple[float, ...]]],
-    #                    target_size: Tuple[int, int],
-    #                    type_of_data: str) -> Union[Tuple[NDArray, NDArray], None]:
-    #     """
-    #     Preprocessing for every image and bbox
-    #
-    #     :param dataset:
-    #     :param type_of_data:
-    #     :param bboxes: list with bboxes
-    #     :param target_size: target size for images
-    #     :return: tuple with reworked bboxes and images
-    #     """
-    #     try:
-    #         if len(target_size) != 2:
-    #             raise f"{COLOR().get('red')}[!] Error: len of target size is not equals 2!{COLOR().get()}"
-    #
-    #         generator = self.getImagesGenerator(dataset, type_of_data)
-    #         start_sizes, reworked_images = self.allImages(generator, target_size)
-    #         reworked_bboxes = self.allBboxes(bboxes, start_sizes, target_size)
-    #
-    #         return reworked_bboxes, reworked_images
-    #     except Exception as e:
-    #         print(f"{COLOR().get('red')}[!] Error: {e}{COLOR().get()}")
-    #         return None
-
 
 class ComfortableUsage(Preprocess):
     """
-    Class for user-friendly usage
+    A user-friendly class that facilitates easy usage of dataset preprocessing.
+
+    Inherits from Preprocess and provides methods for initializing and preprocessing datasets,
+    as well as managing annotations and downloading datasets if necessary.
     """
+
     def __init__(self):
+        """
+        Initializes the ComfortableUsage class.
+
+        Sets up the dataset and annotation paths, and initializes necessary flags.
+        """
         super().__init__()
         self.dataset = None
         self._is_ok = True
@@ -595,9 +569,23 @@ class ComfortableUsage(Preprocess):
         self.path_to_annotations = ''
 
     def initAll(self, new_path_to_dataset: str = './school_notebooks_RU',
-                    new_path_to_annotations: str = './school_notebooks_RU/annotations',
-                    replace_annotations: bool = False,
-                    download_dataset: bool = True) -> None:
+                new_path_to_annotations: str = './school_notebooks_RU/annotations',
+                replace_annotations: bool = False,
+                download_dataset: bool = True,
+                rework: bool = False) -> None:
+        """
+        Initializes the dataset and annotations for the project.
+
+        This method handles downloading the dataset, loading it, replacing annotations if needed,
+        and reworking the annotations. It also verifies that the dataset and annotations have been
+        properly loaded.
+
+        :param new_path_to_dataset: Path to the dataset directory.
+        :param new_path_to_annotations: Path to the annotations directory.
+        :param replace_annotations: Whether to replace the existing annotations with new ones.
+        :param download_dataset: Whether to download the dataset.
+        :param rework: Whether to rework existing annotations.
+        """
         if download_dataset:
             self.datasetDownloader(new_path_to_dataset)
 
@@ -618,11 +606,14 @@ class ComfortableUsage(Preprocess):
 
             self.renameAnnotations(self.path_to_annotations)
 
-            annotations = self.loadAnnotation(self.path_to_annotations,
-                                              "test")
+            annotations = self.loadAnnotation(self.path_to_annotations, "test")
+
+            if rework:
+                for filename in os.listdir(self.path_to_annotations):
+                    self.update_annotations(os.path.join(self.path_to_annotations, filename))
 
             if annotations is None:
-                print(f"{COLOR().get('red')}[!] Error: annotations is not been readed, please retry! {COLOR().get()}")
+                print(f"{COLOR().get('red')}[!] Error: annotations are not loaded, please retry! {COLOR().get()}")
                 self._is_ok = False
 
             return None
@@ -630,19 +621,30 @@ class ComfortableUsage(Preprocess):
             print(f"{COLOR().get('red')}[!] Error: {e}{COLOR().get()}")
             return None
 
-    def preprocessAnnotation(self, items: str = 'train'): #-> Union[NDArray, None]:
+    def preprocessAnnotation(self, items: str = 'train', target_size: Tuple[int, int] = (250, 250)) \
+            -> Union[Tuple, None]:
+        """
+        Preprocesses the annotations and images for a given dataset split (train/test).
+
+        This method loads the annotations and preprocesses the images and bounding boxes
+        according to the target size. It returns the preprocessed bounding boxes and images.
+
+        :param items: The dataset split to preprocess (e.g., 'train' or 'test').
+        :param target_size: The target size for the images after preprocessing (width, height).
+        :return: A tuple containing preprocessed bounding boxes and images.
+        """
         try:
             if not self._is_ok:
                 raise EnvironmentError(f"{COLOR().get('red')}[!] Error: dataset is not loaded, please"
                                        f" use initAll() to load dataset{COLOR().get()}")
 
-            self.loadAnnotation(self.path_to_annotations, items)
+            annotation = self.loadAnnotation(self.path_to_annotations, items)
+            bboxes, images = self.fullPreprocess(dataset=self.dataset, target_size=target_size, split=items)
 
-
+            return bboxes, images
         except Exception as e:
             print(f"{COLOR().get('red')}[!] Error: {e}{COLOR().get()}")
             return None
-
 
 
 class WordsRecognizeNetwork:
@@ -686,9 +688,9 @@ class WordsRecognizeNetwork:
 
 def main():
     usags = ComfortableUsage()
-    usags.initAll(download_dataset=False)
-    test = usags.getAnnotation()
-    print(test['images'][0].keys())
+    usags.initAll(download_dataset=False, rework=False)
+    usags.preprocessAnnotation(items='test')
+
 
 if __name__ == '__main__':
     main()
