@@ -12,3 +12,8 @@ from matplotlib import pyplot as plt
 from numpy.typing import NDArray
 from pycocotools.coco import COCO
 from typing import Union, List, Tuple, Dict, Iterable
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torchvision
+import torchvision.ops

@@ -1,3 +1,5 @@
+import torch
+
 from imports import *
 
 
@@ -40,6 +42,18 @@ class COLOR:
         :return: The ANSI escape code for the color or the reset code if the color is not found.
         """
         return self.__colors.get(color, self.__colors['empty'])
+
+
+class CustomDataset(torch.utils.data.Dataset):
+    def __init__(self, X, y):
+        self.X = X
+        self.y = y
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
 
 
 class Dataset:
@@ -376,10 +390,6 @@ class Preprocess(Annotation):
             x_max = max(x_coords)
             y_max = max(y_coords)
 
-            # Calculate original dimensions
-            width = x_max - x_min
-            height = y_max - y_min
-
             # Original and target sizes
             W_orig, H_orig = original_size
             W_new, H_new = target_size
@@ -387,16 +397,16 @@ class Preprocess(Annotation):
             # Scale coordinates
             x_min_new = float(x_min * (W_new / W_orig))
             y_min_new = float(y_min * (H_new / H_orig))
-            width_new = float(width * (W_new / W_orig))
-            height_new = float(height * (H_new / H_orig))
+            x_max_new = float(x_max * (W_new / W_orig))
+            y_max_new = float(y_max * (H_new / H_orig))
 
-            return [x_min_new, y_min_new, width_new, height_new]
+            return [x_min_new, y_min_new, x_max_new, y_max_new]
 
         except Exception as e:
             print(f"Error: {e}")
             return None
 
-    def allBboxes(self, annotation: COCO, target_size: Tuple[int, int]) -> Union[np.ndarray, None]:
+    def allBboxes(self, annotation: COCO, target_size: Tuple[int, int]) -> Union[Tuple, None]:
         """
         Preprocess every bounding box in COCO annotations.
 
@@ -405,11 +415,12 @@ class Preprocess(Annotation):
 
         :param annotation: COCO object containing annotation data.
         :param target_size: Target size for images.
-        :return: A numpy array with reworked bounding boxes.
+        :return: A tensor with reworked bounding boxes.
         """
         try:
             all_bboxes = []
-            original_sizes = []
+            one_bbox = []
+            image_id_prev = None
 
             for img_id in tqdm(annotation.getImgIds(), desc="Bboxes preprocessing"):
                 img_info = annotation.loadImgs(img_id)[0]
@@ -424,46 +435,73 @@ class Preprocess(Annotation):
                     image_id = ann['image_id']
 
                     if new_bbox is not None:
-                        # Используем кортеж с координатами и переводом
-                        all_bboxes.append((new_bbox[0], new_bbox[1],
-                                           translation, image_id))  # new_bbox[0] - координаты, new_bbox[1] - высота и ширина
+                        if image_id == image_id_prev:
+                            one_bbox.append((new_bbox[0], new_bbox[1],
+                                             new_bbox[2], new_bbox[3],
+                                             translation, image_id))
+                        else:
+                            if one_bbox:
+                                all_bboxes.append(one_bbox.copy())
+                            one_bbox = [(new_bbox[0], new_bbox[1],
+                                         new_bbox[2], new_bbox[3],
+                                         translation, image_id)]
+                            image_id_prev = image_id
+
+            if one_bbox:
+                all_bboxes.append(one_bbox)
 
             if not all_bboxes:
                 print("Error: No valid bboxes were processed!")
                 return None
 
-            # Используем структурированный массив для данных
-            dtype = [('bbox_x', np.float32), ('bbox_y', np.float32), ('translation', 'U100'), ('image_id', int)]  # Пример для dtype
-            return np.array(all_bboxes, dtype=dtype)
+            # Find the maximum number of bboxes in any group
+            max_bboxes = max(len(group) for group in all_bboxes)
+
+            bboxes_tensor = []
+            translations = []
+            image_ids = []
+
+            for group in all_bboxes:
+                bbox_group = []
+                for bbox in group:
+                    x_min, y_min, x_max, y_max, translation, image_id = bbox
+                    bbox_group.append([x_min, y_min, x_max, y_max])
+                    translations.append(translation)
+                    image_ids.append(image_id)
+
+                # Pad the bbox group to match the max number of bboxes
+                while len(bbox_group) < max_bboxes:
+                    bbox_group.append([0.0, 0.0, 0.0, 0.0])  # Padding with zeros
+
+                bboxes_tensor.append(torch.tensor(bbox_group, dtype=torch.float32))
+
+            print("BBoxes: ", len(bboxes_tensor), len(translations), len(image_ids))
+
+            return bboxes_tensor, translations, image_ids
 
         except Exception as e:
             print(f"Error during bboxes preprocessing: {e}")
             return None
 
     @staticmethod
-    def image(image_obj: Image.Image, target_size: Tuple[int, int]) -> Union[Tuple[Tuple[int, int], np.ndarray], None]:
-        """
-        Image preprocessing.
-
-        This method resizes a given image to the target size, converts it to grayscale, and normalizes it.
-
-        :param image_obj: PIL.Image object to be preprocessed.
-        :param target_size: Target size for the image.
-        :return: A tuple with the original size and the preprocessed image as a numpy array.
-        """
+    def image(image_obj: Image.Image, target_size: Tuple[int, int]) -> Union[
+        Tuple[Tuple[int, int], torch.Tensor], None]:
         try:
             original_size = image_obj.size
-            image = image_obj.resize(target_size).convert('L')
-            image_array = np.array(image, dtype=np.float32) / 255.0
-
-            return original_size, np.expand_dims(image_array, axis=-1)
+            transform = torchvision.transforms.Compose([
+                torchvision.transforms.Resize(target_size),
+                torchvision.transforms.Grayscale(num_output_channels=1),
+                torchvision.transforms.ToTensor(),
+            ])
+            image_tensor = transform(image_obj)
+            return original_size, image_tensor
         except Exception as e:
             print(f"Error: {e}")
             return None
 
     def allImages(self, image_generator: Iterable[Image.Image],
                   target_size: Union[Tuple[int, int], List[int]]) -> Union[
-        Tuple[List[Tuple[int, int]], np.ndarray], None]:
+        Tuple[List[Tuple[int, int]], torch.Tensor], None]:
         """
         Preprocess every image from a generator.
 
@@ -491,8 +529,9 @@ class Preprocess(Annotation):
             if not processed_images:
                 print("Error: No valid images were processed!")
                 return None
-
-            return sizes, np.array(processed_images, dtype=np.float32)
+            print(len(sizes), len(processed_images))
+            # Использование torch.stack для объединения тензоров в один
+            return sizes, torch.stack(processed_images).float()
 
         except Exception as e:
             print(f"Error during images preprocessing: {e}")
@@ -501,7 +540,7 @@ class Preprocess(Annotation):
     def fullPreprocess(self, dataset: DatasetDict, target_size: Tuple[int, int],
                        annotations_folder: str = 'school_notebooks_RU/annotations',
                        split: str = 'train') -> Union[
-        Tuple[np.ndarray, np.ndarray], None]:
+        Tuple[torch.types.Tensor, torch.types.Tensor, List, List], None]:
         """
         Full preprocessing for every image and bounding box in the dataset.
 
@@ -525,9 +564,9 @@ class Preprocess(Annotation):
             annot = self.loadAnnotation(annotations_folder, split)
 
             original_sizes = [item['image'].size for item in dataset[split]]
-            reworked_bboxes = self.allBboxes(annot, target_size)
+            reworked_bboxes, translations, images_ids = self.allBboxes(annot, target_size)
 
-            return reworked_bboxes, reworked_images
+            return reworked_bboxes, reworked_images, translations, images_ids
         except Exception as e:
             print(f"Error: {e}")
             return None

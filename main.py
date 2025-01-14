@@ -1,7 +1,5 @@
 from imports import *
-from annotations import Preprocess, COLOR
-from tensorflow.keras import layers, models
-
+from annotations import *
 
 class ComfortableUsage(Preprocess):
     """
@@ -95,58 +93,140 @@ class ComfortableUsage(Preprocess):
                                        f" use initAll() to load dataset{COLOR().get()}")
 
             annotation = self.loadAnnotation(self.path_to_annotations, items)
-            bboxes, images = self.fullPreprocess(dataset=self.dataset, target_size=target_size, split=items)
+            bboxes, images, translations, ids = self.fullPreprocess(dataset=self.dataset, target_size=target_size, split=items)
 
-            return bboxes, images
+            return bboxes, images, translations, ids
         except Exception as e:
             print(f"{COLOR().get('red')}[!] Error: {e}{COLOR().get()}")
             return None
 
 
-class WordsRecognizeNetwork:
+class BboxModel(nn.Module):
     def __init__(self, input_shape: tuple[int, int, int] = (250, 250, 1), conv_filter_size: int = 32,
-                 kernel_size: tuple[int, int] = (3, 3), pool_size: tuple[int, int] = (2, 2)):
-        self.model = models.Sequential([
-            # Start layer
-            layers.Input(shape=input_shape),
+                 kernel_size: tuple[int, int] = (3, 3), pool_size: tuple[int, int] = (2, 2),
+                 num_anchors: int = 9):
+        super(BboxModel, self).__init__()
+        self.conv1 = nn.Conv2d(input_shape[2], conv_filter_size, kernel_size)
+        self.bn1 = nn.BatchNorm2d(conv_filter_size)
+        self.mpl1 = nn.MaxPool2d(pool_size)
+        self.dropout1 = nn.Dropout(0.2)
+        self.leaky_relu1 = nn.LeakyReLU(negative_slope=0.01)
 
-            # Layers for image recognize
-            layers.Conv2D(conv_filter_size, kernel_size, activation='relu'),
-            layers.MaxPooling2D(pool_size=pool_size),
-            layers.Dropout(0.2),
-            layers.Conv2D(conv_filter_size * 2, kernel_size, activation='relu'),
-            layers.MaxPooling2D(pool_size=pool_size),
-            layers.Dropout(0.3),
-            layers.Conv2D(conv_filter_size * 4, kernel_size, activation='relu'),
-            layers.MaxPooling2D(pool_size=pool_size),
-            layers.Dropout(0.4),
+        self.conv2 = nn.Conv2d(conv_filter_size, conv_filter_size * 2,  kernel_size)
+        self.bn2 = nn.BatchNorm2d(conv_filter_size * 2)
+        self.mpl2 = nn.MaxPool2d(pool_size)
+        self.dropout2 = nn.Dropout(0.3)
+        self.leaky_relu2 = nn.LeakyReLU(negative_slope=0.01)
 
-            # Layer for Flatten
-            layers.Flatten(),
+        self.conv3 = nn.Conv2d(conv_filter_size * 2, conv_filter_size * 4, kernel_size)
+        self.bn3 = nn.BatchNorm2d(conv_filter_size * 4)
+        self.mpl3 = nn.MaxPool2d(pool_size)
+        self.dropout3 = nn.Dropout(0.4)
+        self.leaky_relu3 = nn.LeakyReLU(negative_slope=0.01)
 
-            layers.Dense(128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.01)),
-            layers.Dropout(0.5),
+        self.conv_out = nn.Conv2d(conv_filter_size * 4, 1024, kernel_size=3, stride=1, padding=1)
 
-            # End layer for coordinates predicts (like: normalized [x_min, y_min, x_max, y_max])
-            layers.Dense(4, activation='sigmoid')
-        ])
+        self.bboxes_head = nn.Conv2d(1024, num_anchors * 4, kernel_size=1)
+        self.confid_head = nn.Conv2d(1024, num_anchors, kernel_size=1)
 
-    def train(self, images_labels: tuple, epochs: int=100):
-        self.model.compile(optimizer='adam',
-                           loss=tf.keras.losses.Huber(),
-                           metrics=['accuracy'])
-        self.model.fit(images_labels[0], images_labels[1], epochs=epochs)
+        self.bbox_criterion = nn.SmoothL1Loss()
+        self.conf_criterion = nn.BCEWithLogitsLoss()
+
+    def forward(self, x):
+        x = self.leaky_relu1(self.bn1(self.conv1(x)))
+        x = self.mpl1(x)
+        x = self.dropout1(x)
+
+        x = self.leaky_relu2(self.bn2(self.conv2(x)))
+        x = self.mpl2(x)
+        x = self.dropout2(x)
+
+        x = self.leaky_relu3(self.bn3(self.conv3(x)))
+        x = self.mpl3(x)
+        x = self.dropout3(x)
+
+        x = self.conv_out(x)
+
+        bboxes_pred = self.bboxes_head(x).permute(0, 2, 3, 1).contiguous()
+        confid_pred = self.confid_head(x).permute(0, 2, 3, 1).contiguous()
+
+        return bboxes_pred, confid_pred
+
+    @staticmethod
+    def generate_anchors(feature_map, scales, ratios, stride):
+        anchors = []
+        for i in range(feature_map[0]):
+            for j in range(feature_map[1]):
+                cx, cy = j * stride, i * stride
+                for scale in scales:
+                    for ratio in ratios:
+                        w = scale * (ratio ** 0.5)
+                        h = scale / (ratio ** 0.5)
+                        anchors.append([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2])
+
+        return torch.tensor(anchors)
+
+    @staticmethod
+    def decode_preds(bboxes_pred, confid_pred, anchors, conf_tresh: float = 0.5, iou_trash: float = 0.4):
+        confid_pred = torch.sigmoid(confid_pred)
+        keep = confid_pred > conf_tresh
+
+        filtered_bboxes = bboxes_pred[keep]
+        filtered_scores = confid_pred[keep]
+
+        indeces = torchvision.ops.nms(filtered_bboxes, filtered_scores, iou_threshold=iou_trash)
+        return filtered_bboxes[indeces], filtered_scores[indeces]
+
+
+class WordsRecognizeNetwork:
+    def __init__(self, bbox_model: nn.Module, text_rec_model: str = 's', device: str = 'cuda'):
+        self.device = device
+        self.bbox_model = bbox_model.to(self.device)
+        self.bbox_optimizer = optim.Adam(bbox_model.parameters(), lr=0.001)
+
+    def train_bbox(self, dataloader: torch.utils.data.DataLoader, epochs: int=100):
+        self.bbox_model.train()
+        loss = None
+
+        for epoch in range(epochs):
+            epoch_loss = 0.0
+            for image, label in dataloader:
+                images = image.to(self.device)
+                labels = label.to(self.device)
+
+                self.bbox_optimizer.zero_grad()
+
+                bboxes_pred, confid_pred = self.bbox_model(images)
+
+                targets_bboxes = labels[..., :4]
+                targets_confid = labels[..., 4]
+
+                bbox_loss = self.bbox_model.bbox_criterion(bboxes_pred, targets_bboxes)
+                confid_loss = self.bbox_model.confid_criterion(confid_pred, targets_confid)
+
+                loss = bbox_loss + confid_loss
+
+                loss.backward()
+
+                self.bbox_optimizer.step()
+
+                epoch_loss += loss.item()
+
+            print(f"Epoch [{epoch + 1}/{epochs}], Loss: {loss.item():.4f}")
 
     def test(self, images_labels: tuple):
-        test_loss, test_acc = self.model.evaluate(images_labels[0], images_labels[1], verbose=2)
-        print(f"Test loss: {test_loss}\nTest accuracy: {test_acc}")
+        pass
 
 
 def main():
     usags = ComfortableUsage()
     usags.initAll(download_dataset=False, rework=False)
-    usags.preprocessAnnotation(items='test')
-
+    labels, images, _, _ = usags.preprocessAnnotation(items='test')
+    dataset = CustomDataset(images, labels)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=8, shuffle=True)
+    network = BboxModel()
+    nn = WordsRecognizeNetwork(network, device='cpu')
+    nn.train_bbox(dataloader)
 
 if __name__ == '__main__':
     main()
