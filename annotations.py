@@ -473,6 +473,10 @@ class Preprocess(Annotation):
                 while len(bbox_group) < max_bboxes:
                     bbox_group.append([0.0, 0.0, 0.0, 0.0])  # Padding with zeros
 
+                # Add confidence (1) as the last element for each bbox
+                for i in range(len(bbox_group)):
+                    bbox_group[i].append(1.0)  # Confidence = 1 for each box
+
                 bboxes_tensor.append(torch.tensor(bbox_group, dtype=torch.float32))
 
             print("BBoxes: ", len(bboxes_tensor), len(translations), len(image_ids))
