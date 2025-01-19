@@ -248,7 +248,7 @@ class Annotation(Dataset):
             cache_path = os.path.join(base_cache_dir, '.cache', "huggingface",
                                       "hub", "datasets--ai-forever--school_notebooks_RU", "blobs")
 
-            second_path = os.path.join('./school_notebooks_RU', 'annotations')
+            second_path = os.path.join('../school_notebooks_RU', 'annotations')
             if os.path.exists(second_path) and 'annotations_test.json' in os.listdir(second_path):
                 print(f"{COLOR().get('green')}[OK]{COLOR().get()} Annotation file been searched in main"
                       f" directory: {second_path}")
