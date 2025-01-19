@@ -1,8 +1,0 @@
-datasets
-numpy
-tqdm
-pillow
-matplotlib
-pycocotools
-torch
-torchvision

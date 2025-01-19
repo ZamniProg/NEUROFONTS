@@ -1,0 +1,8 @@
+datasets==3.2.0
+numpy==2.0.2
+tqdm==4.67.1
+pillow==11.1.0
+matplotlib==3.10.0
+pycocotools
+torch==2.5.1
+torchvision==0.20.1
